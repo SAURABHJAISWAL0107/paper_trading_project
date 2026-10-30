@@ -6,13 +6,13 @@ WORKDIR /app
 # Install pnpm globally
 RUN npm install -g pnpm
 
-# Copy workspace definitions and lockfile
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+# Copy workspace definitions, config, and lockfile
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc* ./
 COPY packages/api/package.json ./packages/api/
 COPY packages/web/package.json ./packages/web/
 
-# Install all dependencies
-RUN pnpm install
+# Install all dependencies without blocking on build scripts
+RUN pnpm install --no-strict-dep-builds
 
 # Copy source code
 COPY packages/api ./packages/api
