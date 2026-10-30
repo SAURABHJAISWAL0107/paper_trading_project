@@ -6,11 +6,6 @@
 import type { MarketDataProvider, StockQuote, OHLCVBar } from "./MarketDataProvider.js";
 import { STOCKS } from "./stockUniverse.js";
 
-console.warn(
-  "\n⚠️  [SAMPLE DATA] SampleDataProvider is active. " +
-  "All prices are FICTIONAL and for paper-trading practice only.\n"
-);
-
 /** Deterministic pseudo-random based on symbol + day seed */
 function seededRandom(seed: number): number {
   const x = Math.sin(seed) * 10000;

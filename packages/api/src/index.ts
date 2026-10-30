@@ -60,27 +60,54 @@ function getMarket(): MarketDataProvider {
 
 // ── Provider switch endpoint ─────────────────────────────────
 app.get("/api/market-provider", (_req, res) => {
+  let status: "LIVE" | "SAMPLE" | "ERROR" = "SAMPLE";
+  let isSample = true;
+  let lastError: string | null = null;
+
+  if (activeProvider === yahooProvider) {
+    const yStatus = yahooProvider.getStatus();
+    status = yStatus.status;
+    isSample = yStatus.isSample;
+    lastError = yStatus.lastError;
+  } else {
+    status = "SAMPLE";
+    isSample = true;
+  }
+
   res.json({
     provider: activeProvider.providerName,
+    status,
+    isSample,
+    error: lastError,
     available: ["yahoo", "sample"],
   });
 });
 
-app.post("/api/market-provider", (req, res) => {
+app.post("/api/market-provider", async (req, res) => {
   const { provider } = req.body;
   if (provider === "yahoo") {
     activeProvider = yahooProvider;
     console.log("Switched market provider to: LIVE (Yahoo Finance NSE)");
-    tickEngine.init();
+    const yStatus = yahooProvider.getStatus();
+    res.json({
+      provider: activeProvider.providerName,
+      status: yStatus.status,
+      isSample: yStatus.isSample,
+      error: yStatus.lastError,
+    });
   } else if (provider === "sample") {
     activeProvider = sampleProvider;
     console.log("Switched market provider to: SAMPLE (Offline Simulated)");
-    tickEngine.init();
+    res.json({
+      provider: activeProvider.providerName,
+      status: "SAMPLE",
+      isSample: true,
+      error: null,
+    });
   } else {
     res.status(400).json({ error: "Invalid provider. Choose 'yahoo' or 'sample'." });
     return;
   }
-  res.json({ provider: activeProvider.providerName });
 });
 
 // ── API Routes ───────────────────────────────────────────────
@@ -95,7 +122,8 @@ app.use("/api/triggers", triggersRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", provider: activeProvider.providerName });
+  const yStatus = activeProvider === yahooProvider ? yahooProvider.getStatus() : { status: "SAMPLE" };
+  res.json({ status: "ok", provider: activeProvider.providerName, feedStatus: yStatus.status });
 });
 
 // ── Production Static File Serving ───────────────────────────

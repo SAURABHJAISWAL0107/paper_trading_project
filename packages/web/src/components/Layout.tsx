@@ -84,7 +84,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle("dark", next);
   }
 
-  const isLive = providerQ.data?.provider === "yahoo";
+  const providerStatus: "LIVE" | "SAMPLE" | "ERROR" =
+    providerQ.data?.status ??
+    (providerQ.data?.provider === "yahoo" && !providerQ.data?.isSample ? "LIVE" : "SAMPLE");
+  const isLive = providerStatus === "LIVE";
+  const isError = providerStatus === "ERROR";
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans">
@@ -108,9 +112,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <span className="text-slate-600 dark:text-slate-300">NSE {marketOpen ? "Open" : "Closed"}</span>
               </span>
               <span className="text-slate-300 dark:text-slate-600">&bull;</span>
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Live Ticks</span>
+              <span
+                className={`flex items-center gap-1 font-semibold ${
+                  isLive
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : isError
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isLive ? "bg-emerald-500" : isError ? "bg-rose-500" : "bg-amber-500"
+                  }`}
+                />
+                <span>{isLive ? "Live Ticks" : isError ? "Feed Error" : "Sample Ticks"}</span>
               </span>
             </div>
           </div>
@@ -140,17 +156,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2 shrink-0">
             {/* Compact Live vs Sample Switcher */}
             <button
-              onClick={() => toggleProviderMutation.mutate(isLive ? "sample" : "yahoo")}
-              title="Click to switch market feed: Live Yahoo Finance vs Sample Simulated"
+              onClick={() => toggleProviderMutation.mutate(providerQ.data?.provider === "yahoo" ? "sample" : "yahoo")}
+              title={
+                isLive
+                  ? "Feed is LIVE from Yahoo Finance (NSE India). Click to switch to offline simulation."
+                  : isError
+                  ? `Live feed error: ${providerQ.data?.error || "Connection/rate limit error"}. Click to switch to sample simulation.`
+                  : "Feed is using offline SAMPLE data. Click to connect to Live NSE."
+              }
               disabled={toggleProviderMutation.isPending}
               className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border whitespace-nowrap ${
                 isLive
                   ? "bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700/60"
+                  : isError
+                  ? "bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-700/60"
                   : "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/60"
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
-              <span>{isLive ? "Live NSE" : "Sample Data"}</span>
+              <span>
+                {isLive ? "Live NSE" : isError ? "Feed Error (Fallback)" : "Sample Data"}
+              </span>
             </button>
 
             {/* User Profile / Guest Sync button */}

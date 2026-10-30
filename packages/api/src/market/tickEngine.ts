@@ -37,7 +37,7 @@ export class TickEngine implements MarketDataProvider {
         low: stock.basePrice,
         prevClose: stock.basePrice,
         volume: 1_250_000,
-        isSample: false,
+        isSample: true, // Seeded base prices are initially sample data
       });
     }
   }
@@ -48,13 +48,19 @@ export class TickEngine implements MarketDataProvider {
       const provider = this.getUnderlyingProvider();
       const symbols = STOCKS.map((s) => s.symbol);
       const quotes = await provider.getQuotes(symbols);
+      let liveCount = 0;
       for (const q of quotes) {
         if (q && q.price > 0) {
           this.quoteMap.set(q.symbol, { ...q });
+          if (!q.isSample) liveCount++;
         }
       }
       this.isInitialized = true;
-      console.log(`⚡ [TickEngine] Initialized with ${this.quoteMap.size} stocks.`);
+      if (liveCount > 0) {
+        console.log(`⚡ [TickEngine] Initialized with ${liveCount}/${quotes.length} LIVE market quotes.`);
+      } else {
+        console.warn(`⚠️ [TickEngine] Initialized with SAMPLE data (${quotes.length} stocks). Live feed currently unavailable.`);
+      }
     } catch (err) {
       console.warn("⚠️ [TickEngine] Initial sync failed, starting with seeded prices.", err);
     }
@@ -246,6 +252,16 @@ export class TickEngine implements MarketDataProvider {
 
   getAllQuotes(): StockQuote[] {
     return Array.from(this.quoteMap.values());
+  }
+
+  getFeedStatus(): { status: "LIVE" | "SAMPLE" | "ERROR"; isSample: boolean } {
+    const quotes = Array.from(this.quoteMap.values());
+    if (quotes.length === 0) return { status: "SAMPLE", isSample: true };
+    const liveQuotes = quotes.filter((q) => !q.isSample);
+    if (liveQuotes.length > 0) {
+      return { status: "LIVE", isSample: false };
+    }
+    return { status: "SAMPLE", isSample: true };
   }
 }
 

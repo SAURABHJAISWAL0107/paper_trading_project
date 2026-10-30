@@ -108,5 +108,8 @@ export interface WalletData {
 
 export interface MarketProviderStatus {
   provider: "yahoo" | "sample";
+  status: "LIVE" | "SAMPLE" | "ERROR";
+  isSample: boolean;
+  error?: string | null;
   available: string[];
 }

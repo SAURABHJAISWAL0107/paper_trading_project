@@ -44,8 +44,17 @@ export function SampleBadge() {
   return <Badge variant="sample">⚠ SAMPLE DATA</Badge>;
 }
 
-export function MarketDataBadge({ isSample }: { isSample: boolean }) {
-  if (!isSample) {
+export function MarketDataBadge({
+  isSample,
+  status,
+}: {
+  isSample?: boolean;
+  status?: "LIVE" | "SAMPLE" | "ERROR";
+}) {
+  const currentStatus: "LIVE" | "SAMPLE" | "ERROR" =
+    status ?? (isSample === false ? "LIVE" : "SAMPLE");
+
+  if (currentStatus === "LIVE") {
     return (
       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-semibold border border-emerald-300 dark:border-emerald-800">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -53,6 +62,19 @@ export function MarketDataBadge({ isSample }: { isSample: boolean }) {
       </span>
     );
   }
+
+  if (currentStatus === "ERROR") {
+    return (
+      <span
+        title="Live market data feed failed. Simulation fallback is active."
+        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 font-semibold border border-rose-300 dark:border-rose-800"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+        ✕ FEED ERROR (SAMPLE)
+      </span>
+    );
+  }
+
   return <Badge variant="sample">⚠ SAMPLE DATA</Badge>;
 }
 
