@@ -1,18 +1,18 @@
 # Multi-stage Dockerfile for PaperTrader
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Enable pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm globally
+RUN npm install -g pnpm
 
-# Copy monorepo manifests
-COPY package.json pnpm-workspace.yaml ./
+# Copy workspace definitions and lockfile
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/api/package.json ./packages/api/
 COPY packages/web/package.json ./packages/web/
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile=false
+# Install all dependencies
+RUN pnpm install
 
 # Copy source code
 COPY packages/api ./packages/api
@@ -22,19 +22,14 @@ COPY packages/web ./packages/web
 RUN pnpm run build
 
 # ── Production Runner ─────────────────────────────────────────
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
 
-# Copy built artifacts and runtime packages
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/packages/api/dist ./packages/api/dist
-COPY --from=builder /app/packages/api/package.json ./packages/api/
-COPY --from=builder /app/packages/web/dist ./packages/web/dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/api/node_modules ./packages/api/node_modules
+# Copy application and artifacts from builder
+COPY --from=builder /app /app
 
 EXPOSE 4000
 
