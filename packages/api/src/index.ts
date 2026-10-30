@@ -13,7 +13,7 @@ import "./db/database.js";
 import type { MarketDataProvider } from "./market/MarketDataProvider.js";
 import { SampleDataProvider } from "./market/SampleDataProvider.js";
 import { YahooMarketDataProvider } from "./market/YahooMarketDataProvider.js";
-import { TickEngine } from "./market/tickEngine.js";
+import { TickEngine, isNSEMarketOpen } from "./market/tickEngine.js";
 import { checkTriggers } from "./market/triggerEngine.js";
 import { stocksRouter } from "./routes/stocks.js";
 import { walletRouter } from "./routes/wallet.js";
@@ -78,6 +78,7 @@ app.get("/api/market-provider", (_req, res) => {
     provider: activeProvider.providerName,
     status,
     isSample,
+    isMarketOpen: isNSEMarketOpen(),
     error: lastError,
     available: ["yahoo", "sample"],
   });

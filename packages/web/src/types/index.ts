@@ -110,6 +110,7 @@ export interface MarketProviderStatus {
   provider: "yahoo" | "sample";
   status: "LIVE" | "SAMPLE" | "ERROR";
   isSample: boolean;
+  isMarketOpen?: boolean;
   error?: string | null;
   available: string[];
 }

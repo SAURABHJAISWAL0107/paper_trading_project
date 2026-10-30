@@ -9,6 +9,23 @@ import db from "../db/database.js";
 import { checkTriggersWithQuotes } from "./triggerEngine.js";
 import { checkPendingOrders } from "../routes/orders.js";
 
+/** Checks if the National Stock Exchange of India (NSE) is currently open */
+export function isNSEMarketOpen(): boolean {
+  // Convert current time to Indian Standard Time (IST = UTC+5:30)
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const ist = new Date(utc + 3600000 * 5.5);
+  const day = ist.getDay(); // 0 is Sunday, 6 is Saturday
+  if (day === 0 || day === 6) return false;
+
+  const hours = ist.getHours();
+  const minutes = ist.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  // Trading session: 9:15 AM (555 mins) to 3:30 PM (930 mins)
+  return totalMinutes >= 555 && totalMinutes <= 930;
+}
+
 export class TickEngine implements MarketDataProvider {
   readonly providerName = "live-stream";
   private quoteMap = new Map<string, StockQuote>();
@@ -112,6 +129,12 @@ export class TickEngine implements MarketDataProvider {
   /** Generates realistic Brownian motion micro-ticks and broadcasts them */
   private generateTick() {
     if (this.quoteMap.size === 0) return;
+
+    // When connected to live Yahoo exchange data outside market hours, freeze prices!
+    const provider = this.getUnderlyingProvider();
+    if (provider.providerName === "yahoo" && !isNSEMarketOpen()) {
+      return;
+    }
 
     // Identify symbols in user portfolio or active triggers so they update more frequently
     let prioritySymbols = new Set<string>();

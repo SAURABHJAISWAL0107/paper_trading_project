@@ -114,8 +114,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <span className="text-slate-300 dark:text-slate-600">&bull;</span>
               <span
                 className={`flex items-center gap-1 font-semibold ${
-                  isLive
+                  isLive && marketOpen
                     ? "text-emerald-600 dark:text-emerald-400"
+                    : isLive && !marketOpen
+                    ? "text-slate-500 dark:text-slate-400"
                     : isError
                     ? "text-rose-600 dark:text-rose-400"
                     : "text-amber-600 dark:text-amber-400"
@@ -123,10 +125,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
-                    isLive ? "bg-emerald-500" : isError ? "bg-rose-500" : "bg-amber-500"
+                    isLive && marketOpen
+                      ? "bg-emerald-500 animate-pulse"
+                      : isLive && !marketOpen
+                      ? "bg-slate-400"
+                      : isError
+                      ? "bg-rose-500"
+                      : "bg-amber-500"
                   }`}
                 />
-                <span>{isLive ? "Live Ticks" : isError ? "Feed Error" : "Sample Ticks"}</span>
+                <span>
+                  {isLive && marketOpen
+                    ? "Live Ticks"
+                    : isLive && !marketOpen
+                    ? "Prices Frozen"
+                    : isError
+                    ? "Feed Error"
+                    : "Sample Ticks"}
+                </span>
               </span>
             </div>
           </div>
@@ -158,16 +174,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => toggleProviderMutation.mutate(providerQ.data?.provider === "yahoo" ? "sample" : "yahoo")}
               title={
-                isLive
+                isLive && marketOpen
                   ? "Feed is LIVE from Yahoo Finance (NSE India). Click to switch to offline simulation."
+                  : isLive && !marketOpen
+                  ? "Market is CLOSED (9:15 AM - 3:30 PM IST). Closing prices are frozen. Click to switch to Sample Data to practice with moving simulated ticks."
                   : isError
-                  ? `Live feed error: ${providerQ.data?.error || "Connection/rate limit error"}. Click to switch to sample simulation.`
-                  : "Feed is using offline SAMPLE data. Click to connect to Live NSE."
+                  ? `Live feed error: ${providerQ.data?.error || "Connection error"}. Click to switch to sample simulation.`
+                  : "Feed is using offline SAMPLE data with moving ticks. Click to connect to Live NSE."
               }
               disabled={toggleProviderMutation.isPending}
               className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border whitespace-nowrap ${
-                isLive
+                isLive && marketOpen
                   ? "bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700/60"
+                  : isLive && !marketOpen
+                  ? "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700"
                   : isError
                   ? "bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-700/60"
                   : "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/60"
@@ -175,7 +195,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <Activity className="w-3.5 h-3.5" />
               <span>
-                {isLive ? "Live NSE" : isError ? "Feed Error (Fallback)" : "Sample Data"}
+                {isLive ? (marketOpen ? "Live NSE" : "Live NSE (Closed)") : isError ? "Feed Error (Fallback)" : "Sample Data"}
               </span>
             </button>
 
