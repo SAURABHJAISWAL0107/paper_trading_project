@@ -23,6 +23,7 @@ import { watchlistRouter } from "./routes/watchlist.js";
 import { triggersRouter } from "./routes/triggers.js";
 import { streamRouter } from "./routes/stream.js";
 import { authRouter } from "./routes/auth.js";
+import { adminRouter } from "./routes/admin.js";
 import { authMiddleware } from "./middleware/auth.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -120,6 +121,7 @@ app.use("/api/orders", ordersRouter(getMarket));
 app.use("/api/portfolio", portfolioRouter(getMarket));
 app.use("/api/watchlist", watchlistRouter(getMarket));
 app.use("/api/triggers", triggersRouter);
+app.use("/api/admin", adminRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

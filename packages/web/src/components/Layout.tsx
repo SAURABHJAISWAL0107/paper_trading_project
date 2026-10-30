@@ -18,6 +18,7 @@ import {
   LogIn,
   LogOut,
   UserPlus,
+  Shield,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useMarketStream } from "@/hooks/useMarketStream";
@@ -226,6 +227,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <p className="font-bold text-slate-900 dark:text-slate-100 truncate">{user?.name}</p>
                       <p className="text-slate-400 font-mono truncate">{user?.email || `@${user?.username}`}</p>
                     </div>
+                    <Link
+                      to="/admin"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                    >
+                      <Shield className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Admin Portal</span>
+                    </Link>
                     <button
                       onClick={() => {
                         setUserMenuOpen(false);
@@ -305,8 +314,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      <footer className="border-t border-slate-200 dark:border-slate-800 py-4 text-center text-xs text-slate-400">
-        PaperTrader &bull; Real-time simulated trading platform &bull; Virtual Funds ₹1,00,00,000 (1 Cr) &bull; No financial risk.
+      <footer className="border-t border-slate-200 dark:border-slate-800 py-4 text-center text-xs text-slate-400 flex flex-wrap items-center justify-center gap-2">
+        <span>PaperTrader &bull; Real-time simulated trading platform &bull; Virtual Funds ₹1,00,00,000 (1 Cr) &bull; No financial risk.</span>
+        <span>&bull;</span>
+        <Link to="/admin" className="hover:text-blue-500 font-medium inline-flex items-center gap-1">
+          <Shield className="w-3 h-3" /> Admin Portal
+        </Link>
       </footer>
 
       {/* Global Auth Modal */}

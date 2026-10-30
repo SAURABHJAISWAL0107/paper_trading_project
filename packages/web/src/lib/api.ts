@@ -161,4 +161,71 @@ export const api = {
         body: JSON.stringify({ provider }),
       }),
   },
+  admin: {
+    getUsers: (adminKey: string) =>
+      apiFetch<{
+        success: boolean;
+        data: {
+          users: Array<{
+            id: number;
+            username: string;
+            email: string | null;
+            name: string | null;
+            is_guest: number;
+            created_at: string;
+            cash: number;
+            open_positions_count: number;
+            total_orders_count: number;
+          }>;
+          summary: {
+            totalUsers: number;
+            cloudUsers: number;
+            guestUsers: number;
+            totalCash: number;
+            totalTrades: number;
+          };
+        };
+      }>("/admin/users", {
+        headers: { "x-admin-key": adminKey },
+      }),
+    getUserDetail: (userId: number, adminKey: string) =>
+      apiFetch<{
+        success: boolean;
+        data: {
+          user: {
+            id: number;
+            username: string;
+            email: string | null;
+            name: string | null;
+            is_guest: number;
+            created_at: string;
+            cash: number;
+          };
+          holdings: Array<{
+            symbol: string;
+            name: string;
+            product_type: string;
+            leverage: number;
+            qty: number;
+            avg_price: number;
+            updated_at: string;
+          }>;
+          orders: Array<{
+            id: number;
+            symbol: string;
+            side: string;
+            order_type: string;
+            product_type: string;
+            status: string;
+            qty: number;
+            price: number;
+            total_value: number;
+            created_at: string;
+            executed_at?: string;
+          }>;
+        };
+      }>(`/admin/users/${userId}`, {
+        headers: { "x-admin-key": adminKey },
+      }),
+  },
 };

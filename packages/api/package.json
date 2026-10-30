@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "tsx src/test-market-provider.ts && tsx src/test-e2e.ts",
+    "test": "tsx src/test-admin.ts && tsx src/test-market-provider.ts && tsx src/test-e2e.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
