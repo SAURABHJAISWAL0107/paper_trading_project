@@ -1,5 +1,6 @@
 // ============================================================
-// YahooMarketDataProvider — Live NSE India market data via Yahoo Finance
+// YahooMarketDataProvider — Resilient Live NSE Market Data
+// Powered by Yahoo Finance v8 Mobile/Chart Endpoint (No-crumb required)
 // ============================================================
 
 import YahooFinance from "yahoo-finance2";
@@ -11,6 +12,9 @@ interface CacheEntry<T> {
   data: T;
   expiresAt: number;
 }
+
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 export class YahooMarketDataProvider implements MarketDataProvider {
   readonly providerName = "yahoo";
@@ -31,14 +35,11 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     this.yf = new YahooFinance({
       suppressNotices: ["yahooSurvey"],
       fetchOptions: {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        },
+        headers: { "User-Agent": USER_AGENT },
       },
     });
     this.fallback = new SampleDataProvider();
-    console.log("🟢 [LIVE DATA] YahooMarketDataProvider initialized (NSE India).");
+    console.log("🟢 [LIVE DATA] YahooMarketDataProvider initialized (Direct v8 NSE Feed).");
   }
 
   private toYahooSymbol(symbol: string): string {
@@ -46,15 +47,20 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     return clean.endsWith(".NS") || clean.endsWith(".BO") ? clean : `${clean}.NS`;
   }
 
-  private async withTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
-    let timer: NodeJS.Timeout;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Request timed out after ${ms}ms`)), ms);
-    });
+  private async fetchWithTimeout(url: string, ms = 6000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
     try {
-      return await Promise.race([promise, timeoutPromise]);
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "application/json, text/plain, */*",
+        },
+        signal: controller.signal,
+      });
+      return res;
     } finally {
-      clearTimeout(timer!);
+      clearTimeout(timer);
     }
   }
 
@@ -70,16 +76,16 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     this.failureCount++;
     this.lastError = err instanceof Error ? err.message : String(err);
     if (this.failureCount >= 3) {
-      // Open circuit breaker for 60 seconds
-      this.circuitOpenUntil = Date.now() + 60_000;
+      // Open circuit breaker for 45s cooldown
+      this.circuitOpenUntil = Date.now() + 45_000;
       this.feedStatus = "ERROR";
       console.warn(
-        `[YahooMarketDataProvider] ⚠️ Circuit breaker opened for 60s (${this.failureCount} consecutive failures): ${this.lastError}`
+        `[YahooMarketDataProvider] ⚠️ Circuit breaker opened for 45s (${this.failureCount} consecutive failures): ${this.lastError}`
       );
     } else {
       this.feedStatus = "ERROR";
       console.error(
-        `[YahooMarketDataProvider] Quote failed (${this.failureCount}/3): ${this.lastError}`
+        `[YahooMarketDataProvider] Feed query failed (${this.failureCount}/3): ${this.lastError}`
       );
     }
   }
@@ -95,7 +101,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     let status: "LIVE" | "SAMPLE" | "ERROR" = this.feedStatus;
     if (isCircuitOpen || this.failureCount >= 3) {
       status = "ERROR";
-    } else if (this.lastSuccessfulSync && Date.now() - this.lastSuccessfulSync < 60_000) {
+    } else if (this.lastSuccessfulSync && Date.now() - this.lastSuccessfulSync < 90_000) {
       status = "LIVE";
     } else if (!this.lastSuccessfulSync) {
       status = this.lastError ? "ERROR" : "SAMPLE";
@@ -109,6 +115,51 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     };
   }
 
+  /**
+   * Primary fetch using the unauthenticated v8 chart API.
+   * Completely bypasses cookie/crumb requirements and datacenter IP blocks.
+   */
+  private async fetchDirectQuote(cleanSym: string): Promise<StockQuote> {
+    const yfSym = this.toYahooSymbol(cleanSym);
+    const host = Math.random() < 0.5 ? "query1.finance.yahoo.com" : "query2.finance.yahoo.com";
+    const url = `https://${host}/v8/finance/chart/${yfSym}?interval=1d&range=1d`;
+
+    const res = await this.fetchWithTimeout(url, 6000);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from ${host}`);
+    }
+
+    const json = await res.json();
+    const result = json?.chart?.result?.[0];
+    if (!result || !result.meta || typeof result.meta.regularMarketPrice !== "number") {
+      throw new Error(`Incomplete chart payload for ${yfSym}`);
+    }
+
+    const meta = result.meta;
+    const price = parseFloat(meta.regularMarketPrice.toFixed(2));
+    const prevClose = parseFloat((meta.chartPreviousClose ?? meta.previousClose ?? price).toFixed(2));
+    const change = parseFloat((price - prevClose).toFixed(2));
+    const changePct = prevClose > 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
+    const stockMeta = this.stockMeta.get(cleanSym);
+
+    return {
+      symbol: cleanSym,
+      name: (meta.shortName || meta.longName || stockMeta?.name || cleanSym).replace(/\bLTD\b/i, "Ltd"),
+      sector: stockMeta?.sector || "Equities",
+      price,
+      change,
+      changePct,
+      open: parseFloat((meta.regularMarketOpen ?? meta.regularMarketDayLow ?? price).toFixed(2)),
+      high: parseFloat((meta.regularMarketDayHigh ?? price).toFixed(2)),
+      low: parseFloat((meta.regularMarketDayLow ?? price).toFixed(2)),
+      prevClose,
+      volume: meta.regularMarketVolume ?? 0,
+      yearHigh: meta.fiftyTwoWeekHigh ? parseFloat(meta.fiftyTwoWeekHigh.toFixed(2)) : undefined,
+      yearLow: meta.fiftyTwoWeekLow ? parseFloat(meta.fiftyTwoWeekLow.toFixed(2)) : undefined,
+      isSample: false,
+    };
+  }
+
   async getQuote(symbol: string): Promise<StockQuote | null> {
     const cleanSym = symbol.toUpperCase().replace(/\.(NS|BO)$/, "");
     const cached = this.quoteCache.get(cleanSym);
@@ -117,45 +168,51 @@ export class YahooMarketDataProvider implements MarketDataProvider {
       return cached.data;
     }
 
-    // If circuit breaker is open, use fallback immediately without spamming Yahoo
+    // If circuit breaker is open, use fallback immediately without hammering
     if (now < this.circuitOpenUntil) {
       const fb = await this.fallback.getQuote(cleanSym);
       return fb ? { ...fb, isSample: true } : null;
     }
 
     try {
-      const yfSym = this.toYahooSymbol(cleanSym);
-      const res = await this.withTimeout(this.yf.quote(yfSym), 8000);
-      if (!res || !res.regularMarketPrice) {
-        throw new Error(`Incomplete quote for ${yfSym}`);
-      }
-
-      const meta = this.stockMeta.get(cleanSym);
-      const quote: StockQuote = {
-        symbol: cleanSym,
-        name: (res.shortName || res.longName || meta?.name || cleanSym).replace(/\bLTD\b/i, "Ltd"),
-        sector: meta?.sector || "Equities",
-        price: parseFloat(res.regularMarketPrice.toFixed(2)),
-        change: parseFloat((res.regularMarketChange ?? 0).toFixed(2)),
-        changePct: parseFloat((res.regularMarketChangePercent ?? 0).toFixed(2)),
-        open: parseFloat((res.regularMarketOpen ?? res.regularMarketPrice).toFixed(2)),
-        high: parseFloat((res.regularMarketDayHigh ?? res.regularMarketPrice).toFixed(2)),
-        low: parseFloat((res.regularMarketDayLow ?? res.regularMarketPrice).toFixed(2)),
-        prevClose: parseFloat((res.regularMarketPreviousClose ?? res.regularMarketPrice).toFixed(2)),
-        volume: res.regularMarketVolume ?? 0,
-        yearHigh: res.fiftyTwoWeekHigh ? parseFloat(res.fiftyTwoWeekHigh.toFixed(2)) : undefined,
-        yearLow: res.fiftyTwoWeekLow ? parseFloat(res.fiftyTwoWeekLow.toFixed(2)) : undefined,
-        isSample: false,
-      };
-
+      const quote = await this.fetchDirectQuote(cleanSym);
       this.recordSuccess();
-      // Cache for 20 seconds
-      this.quoteCache.set(cleanSym, { data: quote, expiresAt: now + 20_000 });
+      // Cache for 30 seconds
+      this.quoteCache.set(cleanSym, { data: quote, expiresAt: now + 30_000 });
       return quote;
     } catch (err) {
+      // Secondary attempt with library if direct fetch had a hiccup
+      try {
+        const yfSym = this.toYahooSymbol(cleanSym);
+        const res = await this.yf.quote(yfSym);
+        if (res && res.regularMarketPrice) {
+          const meta = this.stockMeta.get(cleanSym);
+          const quote: StockQuote = {
+            symbol: cleanSym,
+            name: (res.shortName || res.longName || meta?.name || cleanSym).replace(/\bLTD\b/i, "Ltd"),
+            sector: meta?.sector || "Equities",
+            price: parseFloat(res.regularMarketPrice.toFixed(2)),
+            change: parseFloat((res.regularMarketChange ?? 0).toFixed(2)),
+            changePct: parseFloat((res.regularMarketChangePercent ?? 0).toFixed(2)),
+            open: parseFloat((res.regularMarketOpen ?? res.regularMarketPrice).toFixed(2)),
+            high: parseFloat((res.regularMarketDayHigh ?? res.regularMarketPrice).toFixed(2)),
+            low: parseFloat((res.regularMarketDayLow ?? res.regularMarketPrice).toFixed(2)),
+            prevClose: parseFloat((res.regularMarketPreviousClose ?? res.regularMarketPrice).toFixed(2)),
+            volume: res.regularMarketVolume ?? 0,
+            yearHigh: res.fiftyTwoWeekHigh ? parseFloat(res.fiftyTwoWeekHigh.toFixed(2)) : undefined,
+            yearLow: res.fiftyTwoWeekLow ? parseFloat(res.fiftyTwoWeekLow.toFixed(2)) : undefined,
+            isSample: false,
+          };
+          this.recordSuccess();
+          this.quoteCache.set(cleanSym, { data: quote, expiresAt: now + 30_000 });
+          return quote;
+        }
+      } catch {
+        // secondary failed
+      }
+
       this.recordFailure(err);
       const fb = await this.fallback.getQuote(cleanSym);
-      // Fallback is strictly marked isSample: true
       return fb ? { ...fb, isSample: true } : null;
     }
   }
@@ -177,7 +234,6 @@ export class YahooMarketDataProvider implements MarketDataProvider {
 
     if (missing.length === 0) return results;
 
-    // If circuit breaker is open, immediately return fallback for missing items
     if (now < this.circuitOpenUntil) {
       const fallbacks = await this.fallback.getQuotes(missing);
       for (const fb of fallbacks) {
@@ -186,60 +242,30 @@ export class YahooMarketDataProvider implements MarketDataProvider {
       return results;
     }
 
-    // Chunk missing symbols into batches of 25 (Yahoo accepts batch symbol arrays efficiently)
-    const chunkSize = 25;
+    // Fetch missing in parallel chunks of 10
+    const chunkSize = 10;
     for (let i = 0; i < missing.length; i += chunkSize) {
       const chunk = missing.slice(i, i + chunkSize);
-      const yfSyms = chunk.map((s) => this.toYahooSymbol(s));
+      const settled = await Promise.allSettled(chunk.map((sym) => this.fetchDirectQuote(sym)));
 
-      try {
-        const batchRes = await this.withTimeout(this.yf.quote(yfSyms), 10_000);
+      let anySuccess = false;
+      for (let j = 0; j < chunk.length; j++) {
+        const item = settled[j];
+        const cleanSym = chunk[j];
+        if (item.status === "fulfilled") {
+          anySuccess = true;
+          this.quoteCache.set(cleanSym, { data: item.value, expiresAt: now + 30_000 });
+          results.push(item.value);
+        } else {
+          const fb = await this.fallback.getQuote(cleanSym);
+          if (fb) results.push({ ...fb, isSample: true });
+        }
+      }
+
+      if (anySuccess) {
         this.recordSuccess();
-
-        const quoteMap = new Map<string, any>();
-        if (Array.isArray(batchRes)) {
-          for (const item of batchRes) {
-            if (item && item.symbol) {
-              const clean = item.symbol.replace(/\.(NS|BO)$/, "");
-              quoteMap.set(clean, item);
-            }
-          }
-        }
-
-        for (const clean of chunk) {
-          const res = quoteMap.get(clean);
-          if (res && res.regularMarketPrice) {
-            const meta = this.stockMeta.get(clean);
-            const quote: StockQuote = {
-              symbol: clean,
-              name: (res.shortName || res.longName || meta?.name || clean).replace(/\bLTD\b/i, "Ltd"),
-              sector: meta?.sector || "Equities",
-              price: parseFloat(res.regularMarketPrice.toFixed(2)),
-              change: parseFloat((res.regularMarketChange ?? 0).toFixed(2)),
-              changePct: parseFloat((res.regularMarketChangePercent ?? 0).toFixed(2)),
-              open: parseFloat((res.regularMarketOpen ?? res.regularMarketPrice).toFixed(2)),
-              high: parseFloat((res.regularMarketDayHigh ?? res.regularMarketPrice).toFixed(2)),
-              low: parseFloat((res.regularMarketDayLow ?? res.regularMarketPrice).toFixed(2)),
-              prevClose: parseFloat((res.regularMarketPreviousClose ?? res.regularMarketPrice).toFixed(2)),
-              volume: res.regularMarketVolume ?? 0,
-              yearHigh: res.fiftyTwoWeekHigh ? parseFloat(res.fiftyTwoWeekHigh.toFixed(2)) : undefined,
-              yearLow: res.fiftyTwoWeekLow ? parseFloat(res.fiftyTwoWeekLow.toFixed(2)) : undefined,
-              isSample: false,
-            };
-            this.quoteCache.set(clean, { data: quote, expiresAt: now + 20_000 });
-            results.push(quote);
-          } else {
-            // Fallback for this single missing item
-            const fb = await this.fallback.getQuote(clean);
-            if (fb) results.push({ ...fb, isSample: true });
-          }
-        }
-      } catch (err) {
-        this.recordFailure(err);
-        const fbChunk = await this.fallback.getQuotes(chunk);
-        for (const fb of fbChunk) {
-          results.push({ ...fb, isSample: true });
-        }
+      } else {
+        this.recordFailure(new Error(`Batch of ${chunk.length} stocks failed`));
       }
     }
 
@@ -261,36 +287,44 @@ export class YahooMarketDataProvider implements MarketDataProvider {
 
     try {
       const yfSym = this.toYahooSymbol(cleanSym);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - Math.max(days + 20, 30));
-      const period1 = startDate.toISOString().split("T")[0];
+      const host = "query1.finance.yahoo.com";
+      const url = `https://${host}/v8/finance/chart/${yfSym}?interval=1d&range=6mo`;
 
-      const res = await this.withTimeout(this.yf.chart(yfSym, { period1, interval: "1d" }), 10_000);
-      if (!res?.quotes || res.quotes.length === 0) {
-        throw new Error("No chart quotes returned");
+      const res = await this.fetchWithTimeout(url, 8000);
+      if (!res.ok) throw new Error(`HTTP ${res.status} from ${host}`);
+
+      const json = await res.json();
+      const result = json?.chart?.result?.[0];
+      const timestamps: number[] = result?.timestamp ?? [];
+      const quote = result?.indicators?.quote?.[0];
+
+      if (!timestamps.length || !quote) {
+        throw new Error("No chart quote data");
       }
 
-      const bars: OHLCVBar[] = res.quotes
-        .filter((q) => q.close != null && q.open != null && q.date != null)
-        .map((q) => {
-          const d = new Date(q.date);
-          return {
-            date: d.toISOString().split("T")[0],
-            open: parseFloat(Number(q.open).toFixed(2)),
-            high: parseFloat(Number(q.high ?? q.close).toFixed(2)),
-            low: parseFloat(Number(q.low ?? q.close).toFixed(2)),
-            close: parseFloat(Number(q.close).toFixed(2)),
-            volume: Number(q.volume ?? 0),
-          };
-        })
-        .slice(-days);
+      const bars: OHLCVBar[] = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        const close = quote.close[i];
+        const open = quote.open[i];
+        if (close == null || open == null) continue;
 
-      if (bars.length === 0) throw new Error("Parsed 0 valid bars");
+        const d = new Date(timestamps[i] * 1000);
+        bars.push({
+          date: d.toISOString().split("T")[0],
+          open: parseFloat(Number(open).toFixed(2)),
+          high: parseFloat(Number(quote.high[i] ?? close).toFixed(2)),
+          low: parseFloat(Number(quote.low[i] ?? close).toFixed(2)),
+          close: parseFloat(Number(close).toFixed(2)),
+          volume: Number(quote.volume[i] ?? 0),
+        });
+      }
+
+      const sliced = bars.slice(-days);
+      if (sliced.length === 0) throw new Error("Parsed 0 valid bars");
 
       this.recordSuccess();
-      // Cache for 5 minutes
-      this.ohlcvCache.set(cacheKey, { data: bars, expiresAt: now + 300_000 });
-      return bars;
+      this.ohlcvCache.set(cacheKey, { data: sliced, expiresAt: now + 300_000 });
+      return sliced;
     } catch (err) {
       this.recordFailure(err);
       return this.fallback.getOHLCV(cleanSym, days);
@@ -309,18 +343,23 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     if (localMatches.length > 0) return localMatches;
 
     try {
-      const searchRes = await this.withTimeout(this.yf.search(query), 5000);
-      if (searchRes?.quotes) {
-        return searchRes.quotes
-          .filter((item: any) => item.symbol && (item.symbol.endsWith(".NS") || item.symbol.endsWith(".BO")))
-          .map((item: any) => ({
-            symbol: item.symbol.replace(/\.(NS|BO)$/, ""),
-            name: item.shortname || item.longname || item.symbol,
-            sector: item.sector || "Equities",
-          }));
+      const host = "query1.finance.yahoo.com";
+      const url = `https://${host}/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`;
+      const res = await this.fetchWithTimeout(url, 4000);
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.quotes) {
+          return json.quotes
+            .filter((item: any) => item.symbol && (item.symbol.endsWith(".NS") || item.symbol.endsWith(".BO")))
+            .map((item: any) => ({
+              symbol: item.symbol.replace(/\.(NS|BO)$/, ""),
+              name: item.shortname || item.longname || item.symbol,
+              sector: item.sector || "Equities",
+            }));
+        }
       }
     } catch {
-      // ignore search error
+      // ignore
     }
 
     return [];
