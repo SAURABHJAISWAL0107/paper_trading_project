@@ -140,15 +140,15 @@ export function StockDetailPage() {
       <Card className="p-5">
         <div className="mb-3">
           <h2 className="font-bold text-base tracking-tight flex items-center gap-2">
-            <span>TradingView Candlestick Chart</span>
+            <span>TradingView Pro Candlestick Chart</span>
             <span className="text-xs font-normal text-slate-400">(Interactive)</span>
           </h2>
           <p className="text-xs text-slate-400">
-            Real Japanese Candlesticks with Volume histogram, EMA 20, SMA 50, and Crosshair inspection.
+            Real Japanese Candlesticks with Multi-Timeframes (1W to 1Y), Volume histogram, EMA 20, SMA 50/200, Bollinger Bands, RSI 14 oscillator, and Fullscreen mode.
           </p>
         </div>
 
-        <TradingViewChart data={ohlcv} height={380} />
+        <TradingViewChart data={ohlcv} height={420} currentPrice={quote.price} />
       </Card>
 
       {/* Position Status Card */}
