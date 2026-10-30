@@ -1,0 +1,9 @@
+node_modules
+packages/*/node_modules
+packages/api/dist
+packages/web/dist
+packages/api/data
+*.db
+*.db-journal
+.git
+.DS_Store

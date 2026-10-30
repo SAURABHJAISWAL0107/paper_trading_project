@@ -1,0 +1,16 @@
+{
+  "name": "paper-trader",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Independent paper-trading application",
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "start": "node packages/api/dist/index.js",
+    "test": "pnpm --filter @paper-trader/api test"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}
