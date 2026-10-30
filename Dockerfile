@@ -3,16 +3,16 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install pnpm globally
-RUN npm install -g pnpm
+# Install pnpm v9 to match lockfileVersion 9.0
+RUN npm install -g pnpm@9
 
 # Copy workspace definitions, config, and lockfile
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc* ./
 COPY packages/api/package.json ./packages/api/
 COPY packages/web/package.json ./packages/web/
 
-# Install all dependencies without blocking on build scripts
-RUN pnpm install --no-strict-dep-builds
+# Install dependencies
+RUN pnpm install
 
 # Copy source code
 COPY packages/api ./packages/api
